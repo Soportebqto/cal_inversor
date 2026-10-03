@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Calculadora Solar MiniApp</title>
+  <!-- SDK Oficial de Telegram Mini Apps -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg-color: var(--tg-theme-bg-color, #1a1a1a);
+      --text-color: var(--tg-theme-text-color, #ffffff);
+      --card-bg: var(--tg-theme-secondary-bg-color, #2a2a2a);
+      --button-color: var(--tg-theme-button-color, #ff9800);
+      --button-text: var(--tg-theme-button-text-color, #000000);
+      --hint-color: var(--tg-theme-hint-color, #aaaaaa);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    h2 { margin-top: 0; font-size: 1.2rem; }
+    
+    .card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    label {
+      font-size: 0.85rem;
+      color: var(--hint-color);
+      margin-bottom: 4px;
+    }
+
+    input, select {
+      background: var(--bg-color);
+      color: var(--text-color);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 1rem;
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .stat-box {
+      background: rgba(255, 152, 0, 0.1);
+      border: 1px solid var(--button-color);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: var(--button-color);
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--hint-color);
+    }
+
+    button.btn-action {
+      width: 100%;
+      background: var(--button-color);
+      color: var(--button-text);
+      border: none;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>☀️ Parámetros del Sistema</h2>
+    <div class="form-group">
+      <label for="hsp">Horas Sol Pico (HSP) - Barquisimeto ~5.0</label>
+      <input type="number" id="hsp" value="5.0" step="0.1" onchange="calcular()">
+    </div>
+    <div class="form-group">
+      <label for="voltage">Voltaje del Sistema (V)</label>
+      <select id="voltage" onchange="calcular()">
+        <option value="12">12V</option>
+        <option value="24" selected>24V</option>
+        <option value="48">48V</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="batteryType">Tipo de Batería</label>
+      <select id="batteryType" onchange="calcular()">
+        <option value="0.8">Litio (LiFePO4) - 80% DOD</option>
+        <option value="0.5">AGM / Gel / Plomo - 50% DOD</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⚡ Consumo Estimado</h2>
+    <div class="form-group">
+      <label for="dailyKwh">Consumo Diario Estimado (kWh/día)</label>
+      <input type="number" id="dailyKwh" value="2.6" step="0.1" onchange="calcular()">
+    </div>
+    <div class="form-group">
+      <label for="peakW">Potencia Simultánea Máxima (Watts)</label>
+      <input type="number" id="peakW" value="1200" step="50" onchange="calcular()">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📊 Requerimientos Calculados</h2>
+    <div class="results-grid">
+      <div class="stat-box">
+        <div class="stat-value" id="resPanels">0 Wp</div>
+        <div class="stat-label">Paneles Solares</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="resBattery">0 Ah</div>
+        <div class="stat-label">Banco Baterías</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="resInverter">0 W</div>
+        <div class="stat-label">Inversor Mínimo</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="resCount">0 de 550W</div>
+        <div class="stat-label">Placas Recomendadas</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 1. Inicializar SDK de Telegram
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    // Feedback háptico al interactuar
+    function vibrate() {
+      if (tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred('light');
+      }
+    }
+
+    // 2. Lógica de Cálculo
+    function calcular() {
+      vibrate();
+
+      const hsp = parseFloat(document.getElementById('hsp').value) || 5.0;
+      const voltage = parseInt(document.getElementById('voltage').value) || 24;
+      const dod = parseFloat(document.getElementById('batteryType').value) || 0.8;
+      const dailyKwh = parseFloat(document.getElementById('dailyKwh').value) || 2.6;
+      const peakW = parseFloat(document.getElementById('peakW').value) || 1200;
+
+      const dailyWh = dailyKwh * 1000;
+
+      // Paneles (+30% margen de seguridad por pérdidas)
+      const reqPanelsWp = Math.ceil((dailyWh * 1.30) / hsp);
+      const num550wPanels = Math.ceil(reqPanelsWp / 550);
+
+      // Batería (Ah según voltaje y DOD)
+      const reqBatteryAh = Math.ceil(dailyWh / (voltage * dod));
+
+      // Inversor (+30% para pico de arranque)
+      const reqInverterW = Math.ceil(peakW * 1.30);
+
+      // Actualizar UI
+      document.getElementById('resPanels').innerText = `${reqPanelsWp} Wp`;
+      document.getElementById('resBattery').innerText = `${reqBatteryAh} Ah (${voltage}V)`;
+      document.getElementById('resInverter').innerText = `${reqInverterW} W`;
+      document.getElementById('resCount').innerText = `${num550wPanels} x 550W`;
+
+      // Configurar MainButton nativo de Telegram
+      tg.MainButton.setText("ENVIAR CÁLCULO AL BOT")
+        .show()
+        .onClick(() => {
+          tg.HapticFeedback.notificationOccurred('success');
+          // Envía el JSON con los resultados de vuelta al chat del Bot
+          tg.sendData(JSON.stringify({
+            paneles_wp: reqPanelsWp,
+            placas_550w: num550wPanels,
+            bateria_ah: reqBatteryAh,
+            voltaje_sistema: voltage,
+            inversor_w: reqInverterW,
+            consumo_kwh: dailyKwh
+          }));
+        });
+    }
+
+    // Ejecutar cálculo inicial
+    calcular();
+  </script>
+</body>
+</html>
